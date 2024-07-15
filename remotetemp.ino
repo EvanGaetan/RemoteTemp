@@ -4,8 +4,8 @@
 #include <time.h>
 
 // Replace with your network credentials
-const char* ssid = "add ssid";
-const char* password = "add password";
+const char* ssid = "ADD SSID";
+const char* password = "ADD PASSWORD";
 
 // Set web server port number to 80
 WiFiServer server(80);
@@ -25,6 +25,10 @@ String htmlResponse; // Global variable to store the HTML response
 void setup() {
     Serial.begin(115200);
     
+    // Set timezone to Eastern Time (EDT)
+    setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
+    tzset();
+
     sensors.begin();
     if (!sensors.getAddress(insideThermometer, 0)) {
         Serial.println("Unable to find address for Device 0");
@@ -59,7 +63,7 @@ void loop() {
     unsigned long currentMillis = millis();
 
     // Log temperature every 30 minutes
-    if (currentMillis - lastLogTime >= 1800000) { // 30 minutes
+    if (currentMillis - lastLogTime >= 2000) { // 30 minutes
         lastLogTime = currentMillis;
         logTemperature();
     }
@@ -82,6 +86,7 @@ void updateTemperatureLog(float temp) {
     
     // Store new values at index 47
     time_t now = time(nullptr);
+    now -= 4 * 3600; // Adjust for UTC-4 (Eastern Daylight Time)
     struct tm* timeInfo = localtime(&now);
     timeLog[47] = String(timeInfo->tm_hour) + ":" + (timeInfo->tm_min < 10 ? "0" : "") + String(timeInfo->tm_min);
     temperatureLog[47] = temp;
