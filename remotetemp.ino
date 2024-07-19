@@ -16,9 +16,13 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 DeviceAddress insideThermometer;
 
+// Central time-related variables
+unsigned long logIntervalSeconds = 30; // Interval between temperature logs in seconds
+const int logArraySize = 288; // Number of entries for 24 hours with 5-minute intervals
+
 // Temperature logging variables
-float temperatureLog[576]; // Store temperature for 48 hours (every 5 minutes)
-String timeLog[576]; // Store timestamps
+float temperatureLog[logArraySize]; // Store temperature for 24 hours (every logIntervalSeconds seconds)
+String timeLog[logArraySize]; // Store timestamps
 unsigned long lastLogTime = 0;
 String htmlResponse; // Global variable to store the HTML response
 
@@ -36,7 +40,7 @@ void setup() {
     sensors.setResolution(insideThermometer, 9);
 
     // Initialize temperature log
-    for (int i = 0; i < 576; i++) {
+    for (int i = 0; i < logArraySize; i++) {
         temperatureLog[i] = -100.0;
         timeLog[i] = "";
     }
@@ -51,7 +55,7 @@ void setup() {
     }
     Serial.println("");
     Serial.println("WiFi connected.");
-    Serial.println("IP address: ");
+    Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
 
     // Initialize time
@@ -62,8 +66,8 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
 
-    // Log temperature every 5 minutes
-    if (currentMillis - lastLogTime >= 300000) { // 5 minutes in milliseconds
+    // Log temperature every logIntervalSeconds seconds
+    if (currentMillis - lastLogTime >= logIntervalSeconds * 1000) {
         lastLogTime = currentMillis;
         logTemperature();
     }
@@ -79,17 +83,17 @@ void logTemperature() {
 
 void updateTemperatureLog(float temp) {
     // Shift all data down by one index
-    for (int i = 0; i < 575; i++) {
+    for (int i = 0; i < logArraySize - 1; i++) {
         temperatureLog[i] = temperatureLog[i + 1];
         timeLog[i] = timeLog[i + 1];
     }
 
-    // Store new value at index 575
+    // Store new value at index logArraySize - 1
     time_t now = time(nullptr);
     now -= 4 * 3600; // Adjust for UTC-4 (Eastern Daylight Time)
     struct tm* timeInfo = localtime(&now);
-    timeLog[575] = String(timeInfo->tm_hour) + ":" + (timeInfo->tm_min < 10 ? "0" : "") + String(timeInfo->tm_min);
-    temperatureLog[575] = temp;
+    timeLog[logArraySize - 1] = String(timeInfo->tm_hour) + ":" + (timeInfo->tm_min < 10 ? "0" : "") + String(timeInfo->tm_min);
+    temperatureLog[logArraySize - 1] = temp;
 
     updateGraphHtml(); // Update HTML response with new data
 }
@@ -103,8 +107,8 @@ void updateGraphHtml() {
     htmlResponse += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}";
     htmlResponse += ".button2 { background-color: #555555; }</style></head>";
     htmlResponse += "<body><h1>ESP32 Web Server</h1>";
-    htmlResponse += "<p style=\"font-size: 48px;\">Temperature: <span id=\"temperature\">" + String(temperatureLog[575]) + " &deg;C</span></p>";
-    htmlResponse += "<h2>Temperature Log (Last 48 hours)</h2><div style='width:100%; height:300px;'><canvas id='tempGraph' width='800' height='400'></canvas></div>";
+    htmlResponse += "<p style=\"font-size: 48px;\">Temperature: <span id=\"temperature\">" + String(temperatureLog[logArraySize - 1]) + " &deg;C</span></p>";
+    htmlResponse += "<h2>Temperature Log (Last 24 hours)</h2><div style='width:100%; height:300px;'><canvas id='tempGraph' width='800' height='400'></canvas></div>";
     htmlResponse += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script><script>";
     htmlResponse += "const ctx = document.getElementById('tempGraph').getContext('2d');";
     htmlResponse += "let tempChart = null;";
@@ -139,7 +143,7 @@ void updateGraphHtml() {
     htmlResponse += "      tempChart.update();"; // Update the chart with new data
     htmlResponse += "    });";
     htmlResponse += "}";
-    htmlResponse += "setInterval(updateTemperature, 300000);"; // Update every 5 minutes
+    htmlResponse += "setInterval(updateTemperature, " + String(logIntervalSeconds * 1000) + ");"; // Update every logIntervalSeconds seconds
     htmlResponse += "initializeGraph();"; // Initialize the graph on page load
     htmlResponse += "</script>";
     htmlResponse += "</body></html>";
@@ -148,9 +152,9 @@ void updateGraphHtml() {
 
 String getTimeLabels() {
     String labels = "";
-    for (int i = 0; i < 576; i++) {
+    for (int i = 0; i < logArraySize; i++) {
         labels += "\"" + timeLog[i] + "\"";
-        if (i < 575) {
+        if (i < logArraySize - 1) {
             labels += ",";
         }
     }
@@ -159,9 +163,9 @@ String getTimeLabels() {
 
 String getTemperatureData() {
     String data = "";
-    for (int i = 0; i < 576; i++) {
+    for (int i = 0; i < logArraySize; i++) {
         data += String(temperatureLog[i]);
-        if (i < 575) {
+        if (i < logArraySize - 1) {
             data += ",";
         }
     }
@@ -169,7 +173,7 @@ String getTemperatureData() {
 }
 
 String getTemperatureLogJson() {
-    String json = "{\"currentTemp\": " + String(temperatureLog[575]) + ", \"time\": \"" + timeLog[575] + "\", \"temp\": " + String(temperatureLog[575]) + "}";
+    String json = "{\"currentTemp\": " + String(temperatureLog[logArraySize - 1]) + ", \"time\": \"" + timeLog[logArraySize - 1] + "\", \"temp\": " + String(temperatureLog[logArraySize - 1]) + "}";
     return json;
 }
 
