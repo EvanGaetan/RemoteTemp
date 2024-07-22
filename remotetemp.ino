@@ -1,11 +1,12 @@
 #include <WiFi.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <ESP_Mail_Client.h>
 #include <time.h>
 
 // Replace with your network credentials
-const char* ssid = "ADD SSID";
-const char* password = "ADD PASSWORD";
+const char* ssid = "add ssid";
+const char* password = "add password";
 
 // Set web server port number to 80
 WiFiServer server(80);
@@ -17,14 +18,29 @@ DallasTemperature sensors(&oneWire);
 DeviceAddress insideThermometer;
 
 // Central time-related variables
-unsigned long logIntervalSeconds = 30; // Interval between temperature logs in seconds
+unsigned long logIntervalSeconds = 300; // Interval between temperature logs in seconds
 const int logArraySize = 288; // Number of entries for 24 hours with 5-minute intervals
 
 // Temperature logging variables
 float temperatureLog[logArraySize]; // Store temperature for 24 hours (every logIntervalSeconds seconds)
 String timeLog[logArraySize]; // Store timestamps
 unsigned long lastLogTime = 0;
+
+// Email settings
+#define SMTP_HOST "smtp.gmail.com"
+#define SMTP_PORT 465
+#define AUTHOR_EMAIL "sender email"
+#define AUTHOR_PASSWORD "app password"
+#define RECIPIENT_EMAIL "receiver email"
+
+// Maximum and minimum temperature thresholds
+const float MAX_TEMP = 25.0;
+const float MIN_TEMP = 22.0;
+
+// Global variables for HTML response
 String htmlResponse; // Global variable to store the HTML response
+SMTPSession smtp;
+
 
 void setup() {
     Serial.begin(115200);
@@ -33,6 +49,7 @@ void setup() {
     setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
     tzset();
 
+    // Initialize Dallas temperature sensor
     sensors.begin();
     if (!sensors.getAddress(insideThermometer, 0)) {
         Serial.println("Unable to find address for Device 0");
@@ -61,6 +78,9 @@ void setup() {
     // Initialize time
     configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // NTP server
     server.begin();
+
+    // Initialize SMTP session
+
 }
 
 void loop() {
@@ -72,12 +92,17 @@ void loop() {
         logTemperature();
     }
 
+    // Check temperature thresholds
+    float currentTemp = sensors.getTempC(insideThermometer);
     handleClient();
 }
 
 void logTemperature() {
     sensors.requestTemperatures();
     float currentTemp = sensors.getTempC(insideThermometer);
+      if (currentTemp > MAX_TEMP || currentTemp < MIN_TEMP) {
+        sendTemperatureAlert(currentTemp);
+    }
     updateTemperatureLog(currentTemp);
 }
 
@@ -172,44 +197,91 @@ String getTemperatureData() {
     return data;
 }
 
-String getTemperatureLogJson() {
-    String json = "{\"currentTemp\": " + String(temperatureLog[logArraySize - 1]) + ", \"time\": \"" + timeLog[logArraySize - 1] + "\", \"temp\": " + String(temperatureLog[logArraySize - 1]) + "}";
-    return json;
+void sendTemperatureAlert(float currentTemp) {
+    SMTP_Message message;
+    message.sender.name = "ESP32";
+    message.sender.email = AUTHOR_EMAIL;
+    message.subject = F("Temperature Alert!");
+    message.addRecipient(F("Recipient Name"), RECIPIENT_EMAIL);
+
+    String messageBody = "Current temperature is ";
+    messageBody += String(currentTemp);
+    messageBody += " °C. This exceeds acceptable limits.";
+    message.text.content = messageBody.c_str();
+    message.text.charSet = "us-ascii";
+    message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+   
+       smtp.debug(1); // Enable debug output for SMTP
+    Session_Config config;
+    config.server.host_name = SMTP_HOST;
+    config.server.port = SMTP_PORT;
+    config.login.email = AUTHOR_EMAIL;
+    config.login.password = AUTHOR_PASSWORD;
+    config.login.user_domain = "";
+
+      config.time.ntp_server = F("pool.ntp.org,time.nist.gov");
+      config.time.gmt_offset = 4;
+      config.time.day_light_offset = 0;
+
+    if (!smtp.connect(&config)) {
+        Serial.printf("SMTP connection failed, Error code: %d\n", smtp.errorCode());
+        while (1);
+    }
+
+    Serial.println("SMTP Connected.");
+    if (!smtp.connect(&config)){
+    ESP_MAIL_PRINTF("Connection error, Status Code: %d, Error Code: %d, Reason: %s", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return;
+    }
+    if (!smtp.isLoggedIn()){
+    Serial.println("\nNot yet logged in.");
+    }
+    else{
+    if (smtp.isAuthenticated())
+      Serial.println("\nSuccessfully logged in.");
+    else
+      Serial.println("\nConnected with no Auth.");
+    }
+    if (!MailClient.sendMail(&smtp, &message)) {
+        Serial.printf("Failed to send email, Error code: %d\n", smtp.errorCode());
+    }
 }
 
 void handleClient() {
-    WiFiClient client = server.available();
+    WiFiClient client = server.available();   // Listen for incoming clients
 
-    if (client) {
-        Serial.println("New Client.");
+    if (client) {                             // If a new client connects,
+        Serial.println("New Client.");         // print a message out in the serial port
+        String currentLine = "";               // make a String to hold incoming data from the client
+        while (client.connected()) {           // loop while the client's connected
+            if (client.available()) {          // if there's bytes to read from the client,
+                char c = client.read();        // read a byte, then
+                Serial.write(c);               // print it out the serial monitor
+                if (c == '\n') {               // if the byte is a newline character
 
-        // Read the first line of the request
-        String currentLine = client.readStringUntil('\r');
-        Serial.println(currentLine);
+                    if (currentLine.length() == 0) {
+                        // send a standard HTTP response header
+                        client.println("HTTP/1.1 200 OK");
+                        client.println("Content-type:text/html");
+                        client.println("Connection: close");
+                        client.println();
 
-        // Handle HTTP request
-        if (currentLine.indexOf("GET /temperature-data") != -1) {
-            // Send JSON response with latest temperature data
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type: application/json");
-            client.println("Connection: close");
-            client.println();
-            client.print(getTemperatureLogJson());
-            client.stop();
-            Serial.println("Client disconnected.");
-            Serial.println("");
-        } else {
-            // Send the HTTP response headers
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Connection: close");
-            client.println();
+                        // Send the HTML webpage
+                        client.print(htmlResponse);
 
-            // Print the last updated HTML response with temperature and graph
-            client.print(htmlResponse);
-            client.stop();
-            Serial.println("Client disconnected.");
-            Serial.println("");
+                        break;
+                    } else {
+                        // Reset the currentLine variable,
+                        currentLine = "";
+                    }
+                } else if (c != '\r') {          // if you got anything else but a carriage return character,
+                    currentLine += c;            // add it to the end of the currentLine
+                }
+            }
         }
+        delay(10);                             // give the web browser time to receive the data
+        client.stop();                         // close the connection
+        Serial.println("Client disconnected.");
+        Serial.println("");
     }
 }
