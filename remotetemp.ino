@@ -5,8 +5,8 @@
 #include <time.h>
 
 // Replace with your network credentials
-const char* ssid = "add ssid";
-const char* password = "add password";
+const char* ssid = "SSID";
+const char* password = "PASSWORD";
 
 // Set web server port number to 80
 WiFiServer server(80);
@@ -18,24 +18,24 @@ DallasTemperature sensors(&oneWire);
 DeviceAddress insideThermometer;
 
 // Central time-related variables
-unsigned long logIntervalSeconds = 300; // Interval between temperature logs in seconds
-const int logArraySize = 288; // Number of entries for 24 hours with 5-minute intervals
+unsigned long logIntervalSeconds = 600; // Interval between temperature logs in seconds
+const int logArraySize = 72; // Number of entries for 12 hours with 10-minute intervals
 
 // Temperature logging variables
-float temperatureLog[logArraySize]; // Store temperature for 24 hours (every logIntervalSeconds seconds)
+float temperatureLog[logArraySize]; // Store temperature for 12 hours (every logIntervalSeconds seconds)
 String timeLog[logArraySize]; // Store timestamps
 unsigned long lastLogTime = 0;
 
 // Email settings
 #define SMTP_HOST "smtp.gmail.com"
 #define SMTP_PORT 465
-#define AUTHOR_EMAIL "sender email"
-#define AUTHOR_PASSWORD "app password"
-#define RECIPIENT_EMAIL "receiver email"
+#define AUTHOR_EMAIL "SENDER EMAIL"
+#define AUTHOR_PASSWORD "APP PASSWORD"
+#define RECIPIENT_EMAIL "EMAIL"
 
 // Maximum and minimum temperature thresholds
-const float MAX_TEMP = 25.0;
-const float MIN_TEMP = 22.0;
+const float MAX_TEMP = 21.0;
+const float MIN_TEMP = 2.0;
 
 // Global variables for HTML response
 String htmlResponse; // Global variable to store the HTML response
@@ -92,6 +92,10 @@ void loop() {
         logTemperature();
     }
 
+    if(currentMillis >= 172800000){
+      ESP.restart();
+    }
+
     // Check temperature thresholds
     float currentTemp = sensors.getTempC(insideThermometer);
     handleClient();
@@ -131,9 +135,9 @@ void updateGraphHtml() {
     htmlResponse += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
     htmlResponse += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}";
     htmlResponse += ".button2 { background-color: #555555; }</style></head>";
-    htmlResponse += "<body><h1>ESP32 Web Server</h1>";
+    htmlResponse += "<body><h1>Flower Storage</h1>";
     htmlResponse += "<p style=\"font-size: 48px;\">Temperature: <span id=\"temperature\">" + String(temperatureLog[logArraySize - 1]) + " &deg;C</span></p>";
-    htmlResponse += "<h2>Temperature Log (Last 24 hours)</h2><div style='width:100%; height:300px;'><canvas id='tempGraph' width='800' height='400'></canvas></div>";
+    htmlResponse += "<h2>Temperature Log (Last 12 hours)</h2><div style='width:100%; height:300px;'><canvas id='tempGraph' width='800' height='400'></canvas></div>";
     htmlResponse += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script><script>";
     htmlResponse += "const ctx = document.getElementById('tempGraph').getContext('2d');";
     htmlResponse += "let tempChart = null;";
@@ -202,7 +206,7 @@ void sendTemperatureAlert(float currentTemp) {
     message.sender.name = "ESP32";
     message.sender.email = AUTHOR_EMAIL;
     message.subject = F("Temperature Alert!");
-    message.addRecipient(F("Recipient Name"), RECIPIENT_EMAIL);
+    message.addRecipient(F("NAME"), RECIPIENT_EMAIL);
 
     String messageBody = "Current temperature is ";
     messageBody += String(currentTemp);
