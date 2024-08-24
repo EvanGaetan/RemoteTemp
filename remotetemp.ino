@@ -5,8 +5,8 @@
 #include <time.h>
 
 // Replace with your network credentials
-const char* ssid = "SSID";
-const char* password = "PASSWORD";
+const char* ssid = "ADD SSID";
+const char* password = "ADD PASSWORD";
 
 // Set web server port number to 80
 WiFiServer server(80);
@@ -29,9 +29,9 @@ unsigned long lastLogTime = 0;
 // Email settings
 #define SMTP_HOST "smtp.gmail.com"
 #define SMTP_PORT 465
-#define AUTHOR_EMAIL "SENDER EMAIL"
-#define AUTHOR_PASSWORD "APP PASSWORD"
-#define RECIPIENT_EMAIL "EMAIL"
+#define AUTHOR_EMAIL ""
+#define AUTHOR_PASSWORD ""
+#define RECIPIENT_EMAIL ""
 
 // Maximum and minimum temperature thresholds
 const float MAX_TEMP = 21.0;
@@ -41,6 +41,8 @@ const float MIN_TEMP = 2.0;
 String htmlResponse; // Global variable to store the HTML response
 SMTPSession smtp;
 
+int alertcounter = 0; //Initialize Count (increases every 10 min)
+const int alertfrequency = 6; //Frequency for alerts if count exceeds freq and temperature conditions are met it sends alert
 
 void setup() {
     Serial.begin(115200);
@@ -103,9 +105,12 @@ void loop() {
 
 void logTemperature() {
     sensors.requestTemperatures();
-    float currentTemp = sensors.getTempC(insideThermometer);
-      if (currentTemp > MAX_TEMP || currentTemp < MIN_TEMP) {
+    float currentTempRaw = sensors.getTempC(insideThermometer);
+    float currentTemp = currentTempRaw - 1.00;
+    alertcounter++; //increase alert count
+      if ((currentTemp > MAX_TEMP || currentTemp < MIN_TEMP) && alertcounter >= alertfrequency) {
         sendTemperatureAlert(currentTemp);
+        alertcounter = 0; //reset alert count
     }
     updateTemperatureLog(currentTemp);
 }
@@ -135,7 +140,7 @@ void updateGraphHtml() {
     htmlResponse += "<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}";
     htmlResponse += ".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}";
     htmlResponse += ".button2 { background-color: #555555; }</style></head>";
-    htmlResponse += "<body><h1>Flower Storage</h1>";
+    htmlResponse += "<body><h1>Wine Cooler</h1>";
     htmlResponse += "<p style=\"font-size: 48px;\">Temperature: <span id=\"temperature\">" + String(temperatureLog[logArraySize - 1]) + " &deg;C</span></p>";
     htmlResponse += "<h2>Temperature Log (Last 12 hours)</h2><div style='width:100%; height:300px;'><canvas id='tempGraph' width='800' height='400'></canvas></div>";
     htmlResponse += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script><script>";
@@ -203,14 +208,17 @@ String getTemperatureData() {
 
 void sendTemperatureAlert(float currentTemp) {
     SMTP_Message message;
-    message.sender.name = "ESP32";
+    message.sender.name = "Wine Cooler";
     message.sender.email = AUTHOR_EMAIL;
     message.subject = F("Temperature Alert!");
-    message.addRecipient(F("NAME"), RECIPIENT_EMAIL);
+    message.addRecipient(F("Matt"), RECIPIENT_EMAIL);
 
     String messageBody = "Current temperature is ";
     messageBody += String(currentTemp);
     messageBody += " °C. This exceeds acceptable limits.";
+    messageBody += " View temperature data at ";
+    IPAddress ip = WiFi.localIP();
+    messageBody += ip.toString();
     message.text.content = messageBody.c_str();
     message.text.charSet = "us-ascii";
     message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
